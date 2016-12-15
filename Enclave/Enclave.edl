@@ -1,6 +1,12 @@
 /* Enclave.edl - Top EDL file. */
 
 enclave {
+
+    include "sgx_status.h"
+
+    trusted {
+	public sgx_status_t do_sensitive_ins(int idx, int len, [out,size=len] char *buf);
+    };
     
     include "user_types.h" /* buffer_t */
 

@@ -126,6 +126,35 @@ static sgx_errlist_t sgx_errlist[] = {
     },
 };
 
+/* Copied from the enclave code */
+/*
+ * Sensitive Ins covered by UMIP
+ * SGDT - Store Global Descriptor Table
+ * SIDT - Store Interrupt Descriptor Table
+ * SLDT - Store Local Descriptor Table
+ * SMSW - Store Machine Status Word
+ * STR - Store Task Register
+*/
+#define SEN_INS_SGDT	0
+#define SEN_INS_SIDT	1
+#define SEN_INS_SLDT	2
+#define SEN_INS_SMSW	3
+#define SEN_INS_STR	4
+
+/* Def for x86_64 descriptor */
+typedef struct {
+	unsigned long	limit : 16;
+	unsigned long	base  : 64;
+} __attribute__((packed)) dt_x86_64;
+
+/* Global vars in the enclave */
+static dt_x86_64 gdt = {0, 0};
+static dt_x86_64 idt = {0, 0};
+static unsigned long ldt = -1;
+static unsigned long tr = -1;
+static unsigned long msw = -1;
+
+
 /* Check error conditions for loading enclave */
 void print_error_message(sgx_status_t ret)
 {
@@ -307,8 +336,8 @@ int query_sgx_status()
 /* Application entry */
 int SGX_CDECL main(int argc, char *argv[])
 {
-    (void)(argc);
-    (void)(argv);
+    int idx = -1;
+    sgx_status_t ret;
 
 #if defined(_MSC_VER)
     if (query_sgx_status() < 0) {
@@ -317,7 +346,16 @@ int SGX_CDECL main(int argc, char *argv[])
         getchar();
         return -1; 
     }
-#endif 
+#endif
+
+    if (argc != 2) {
+	printf("Only 1 parameter is expected ...\n");
+	return -1;
+    }
+
+    /* Get the sensitive instruction idx */
+    idx = strtol(argv[1], NULL, 10);
+    printf("Got senstive instruction idx: %d\n", idx);
 
     /* Initialize the enclave */
     if(initialize_enclave() < 0){
@@ -336,6 +374,47 @@ int SGX_CDECL main(int argc, char *argv[])
     ecall_libc_functions();
     ecall_libcxx_functions();
     ecall_thread_functions();
+
+    printf("Start sensitive instruction testing...\n");
+
+    /* Time to play cool stuffs */
+    switch (idx) {
+    case SEN_INS_SGDT:
+	if (do_sensitive_ins(global_eid, &ret, idx, sizeof(gdt), (char *)&gdt) != SGX_SUCCESS)
+	    printf("do_sensitive_ins failed for SGDT instruction\n");
+	else
+	    printf("GDT: limit=%04d, base=%016lx\n", gdt.limit, gdt.base);
+	break;
+    case SEN_INS_SIDT:
+	if (do_sensitive_ins(global_eid, &ret, idx, sizeof(idt), (char *)&idt) != SGX_SUCCESS)
+	    printf("do_sensitive_ins failed for SIDT instruction\n");
+	else
+	    printf("IDT: limit=%04d, base=%016lx\n", idt.limit, idt.base);
+	break;
+    case SEN_INS_SLDT:
+	if (do_sensitive_ins(global_eid, &ret, idx, sizeof(ldt), (char *)&ldt) != SGX_SUCCESS)
+	    printf("do_sensitive_ins failed for SLDT instruction\n");
+	else
+	    printf("LDT: %04lx\n", ldt);
+	break;
+    case SEN_INS_SMSW:
+	if (do_sensitive_ins(global_eid, &ret, idx, sizeof(msw), (char *)&msw) != SGX_SUCCESS)
+	    printf("do_sensitive_ins failed for SMSW instruction\n");
+	else
+	    printf("MSW: %04lx\n", msw);
+	break;
+    case SEN_INS_STR:
+	if (do_sensitive_ins(global_eid, &ret, idx, sizeof(tr), (char *)&tr) != SGX_SUCCESS)
+	    printf("do_sensitive_ins failed for STR instruction\n");
+	else
+	    printf("TR: %04lx\n", tr);
+	break;
+    default:
+	printf("Unsupported sensitive instruction idx: %d\n", idx);
+	break;
+    }
+
+    printf("Sensitive instruction testing done...\n");
 
     /* Destroy the enclave */
     sgx_destroy_enclave(global_eid);
